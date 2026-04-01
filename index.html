@@ -114,7 +114,7 @@
 
       <div class="url-box" id="queryPreview">Preparando consulta...</div>
       <div class="note" id="activeFiltersText">Filtros activos: ninguno.</div>
-      <div class="note">La tabla es resumida, pero el Excel se genera con todos los campos originales del dataset filtrado.</div>
+      <div class="note">Esta versión usa JSONP para que el autocompletado y los filtros funcionen incluso si abres el HTML directamente.</div>
     </section>
 
     <section class="stats">
@@ -256,6 +256,36 @@
       el.statusDot.className = "dot " + (kind === "error" ? "error" : "ok");
     }
 
+    function jsonpRequest(url) {
+      return new Promise((resolve, reject) => {
+        const callbackName = "__jsonp_" + Math.random().toString(36).slice(2);
+        const script = document.createElement("script");
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("La consulta tardó demasiado."));
+        }, 20000);
+
+        function cleanup() {
+          clearTimeout(timeout);
+          if (script.parentNode) script.parentNode.removeChild(script);
+          try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        }
+
+        window[callbackName] = (data) => {
+          cleanup();
+          resolve(data);
+        };
+
+        const sep = url.includes("?") ? "&" : "?";
+        script.src = `${url}${sep}$jsonp=${callbackName}`;
+        script.onerror = () => {
+          cleanup();
+          reject(new Error("No se pudo cargar la consulta JSONP."));
+        };
+        document.body.appendChild(script);
+      });
+    }
+
     function getInput(kind) {
       return ({ laboratorio: el.labInput, variable: el.varInput, matriz: el.matrizInput, metodo: el.metodoInput })[kind];
     }
@@ -310,6 +340,16 @@
       return `${API_BASE}?${params.toString()}`;
     }
 
+    function buildSuggestUrl(kind, raw) {
+      const field = FILTER_FIELDS[kind];
+      const params = new URLSearchParams();
+      params.set("$select", `distinct \`${field}\``);
+      params.set("$where", `upper(cast(\`${field}\` as text)) like upper('%${soqlEscape(raw)}%') AND \`${field}\` IS NOT NULL`);
+      params.set("$order", `\`${field}\` ASC`);
+      params.set("$limit", "8");
+      return `${API_BASE}?${params.toString()}`;
+    }
+
     function formatDate(value) {
       if (!value) return "";
       if (/^\d{2}\/\d{2}\/\d{4}$/.test(String(value))) return value;
@@ -334,10 +374,9 @@
       const url = buildTableUrl(state.offset);
       el.queryPreview.textContent = url;
       setStatus("Consultando...");
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`La API respondió con estado ${res.status}.`);
-      const data = await res.json();
-      state.rows = Array.isArray(data) ? data : [];
+      const data = await jsonpRequest(url);
+      const rows = Array.isArray(data) ? data : [];
+      state.rows = rows;
       renderTable();
       setStatus("Consulta exitosa");
     }
@@ -362,12 +401,10 @@
       let offset = 0;
       let allRows = [];
       while (true) {
-        const res = await fetch(buildExportUrl(offset, pageSize));
-        if (!res.ok) throw new Error(`La exportación respondió con estado ${res.status}.`);
-        const data = await res.json();
-        const rows = Array.isArray(data) ? data : [];
-        allRows = allRows.concat(rows);
-        if (rows.length < pageSize) break;
+        const rows = await jsonpRequest(buildExportUrl(offset, pageSize));
+        const arr = Array.isArray(rows) ? rows : [];
+        allRows = allRows.concat(arr);
+        if (arr.length < pageSize) break;
         offset += pageSize;
         if (offset > 500000) break;
       }
@@ -439,11 +476,8 @@
         ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
 
         headers.forEach((header, idx) => {
-          const values = [header, ...rows.map(r => {
-            const original = r[orderedKeys[idx]] ?? "";
-            return String(original);
-          })];
-          const maxLen = Math.min(80, Math.max(...values.map(v => String(v).length), 12));
+          const values = [header, ...rows.map(r => String(r[orderedKeys[idx]] ?? ""))];
+          const maxLen = Math.min(80, Math.max(...values.map(v => v.length), 12));
           ws.getColumn(idx + 1).width = maxLen + 2;
         });
 
@@ -497,20 +531,14 @@
     async function fetchSuggestions(kind, text) {
       const raw = text.trim();
       if (!raw) return [];
-      const field = FILTER_FIELDS[kind];
       const cacheKey = `${kind}|${raw.toLowerCase()}`;
       if (state.cache[cacheKey]) return state.cache[cacheKey];
-
-      const params = new URLSearchParams();
-      params.set("$select", `distinct \`${field}\``);
-      params.set("$where", `upper(cast(\`${field}\` as text)) like upper('%${soqlEscape(raw)}%') AND \`${field}\` IS NOT NULL`);
-      params.set("$order", `\`${field}\` ASC`);
-      params.set("$limit", "8");
-
-      const res = await fetch(`${API_BASE}?${params.toString()}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      const values = data.map(item => item[field]).filter(v => v != null && String(v).trim() !== "").slice(0, 8);
+      const data = await jsonpRequest(buildSuggestUrl(kind, raw));
+      const field = FILTER_FIELDS[kind];
+      const values = (Array.isArray(data) ? data : [])
+        .map(item => item[field])
+        .filter(v => v != null && String(v).trim() !== "")
+        .slice(0, 8);
       state.cache[cacheKey] = values;
       return values;
     }
@@ -572,13 +600,22 @@
         timer = setTimeout(async () => {
           const value = input.value.trim();
           if (!value) return renderSuggestions(kind, []);
-          renderSuggestions(kind, await fetchSuggestions(kind, value));
+          try {
+            renderSuggestions(kind, await fetchSuggestions(kind, value));
+          } catch (error) {
+            console.error(error);
+            renderSuggestions(kind, []);
+          }
         }, 180);
       });
       input.addEventListener("focus", async () => {
         const value = input.value.trim();
         if (!value) return;
-        renderSuggestions(kind, await fetchSuggestions(kind, value));
+        try {
+          renderSuggestions(kind, await fetchSuggestions(kind, value));
+        } catch (error) {
+          console.error(error);
+        }
       });
       input.addEventListener("keydown", async e => {
         const visible = box.style.display === "block";
