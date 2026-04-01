@@ -34,7 +34,7 @@
       linear-gradient(180deg,#fcfcfb 0%,#f7f7f5 100%);
     color:var(--text);
   }
-  .topbar,.nav,.ticker{display:none}
+  .topbar,.nav,.ticker,.eyebrow,.sidebox{display:none!important}
   .wrap{
     max-width:1180px;
     margin:0 auto;
@@ -44,7 +44,7 @@
     display:block;
     margin-bottom:18px;
   }
-  .panel,.hero,.filters,.summary,.sidebox{
+  .panel,.hero,.filters,.summary{
     background:var(--panel);
     border:1px solid var(--line);
     border-radius:var(--radius);
@@ -54,8 +54,10 @@
     padding:42px 36px;
     margin-bottom:18px;
     background:linear-gradient(180deg,#fff 0%,#fafaf8 100%);
+    position:relative;
+    overflow:hidden;
   }
-  .hero::before,.eyebrow{display:none}
+  .hero::before{display:none}
   .hero h1{
     margin:0;
     font-size:48px;
@@ -64,11 +66,14 @@
     font-weight:800;
     color:var(--accent);
     text-align:center;
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    text-transform:none;
   }
-  .hero p{display:none}
-  .sidebox{display:none}
-  .badges{display:none}
-  .filters,.summary{padding:26px;margin-bottom:18px}
+  .hero p,.badges{display:none}
+  .filters,.summary{
+    padding:26px;
+    margin-bottom:18px;
+  }
   .section-title,.result-title{
     margin:0;
     font-size:24px;
@@ -116,6 +121,7 @@
     flex-wrap:wrap;
   }
   .actions{margin-top:18px}
+  .actions>*{flex:0 0 auto}
   button{
     appearance:none;
     border:none;
@@ -128,6 +134,7 @@
     font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     text-transform:none;
     letter-spacing:0;
+    width:auto;
   }
   button:hover{transform:translateY(-1px)}
   .btn-main{
@@ -145,6 +152,7 @@
     padding:12px 14px;
     border-radius:var(--radius-sm);
     background:#fafaf8;
+    border-left:none;
     border:1px solid var(--line);
     color:#6b7280;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
@@ -216,6 +224,7 @@
     z-index:1;
     text-transform:none;
   }
+  tbody tr:nth-child(even) td{background:#fff}
   tbody tr:hover td{background:#fbfbf9}
   .autocomplete-box{
     position:absolute;
@@ -224,23 +233,23 @@
     right:0;
     background:#fff;
     border:1px solid var(--line);
-    border-radius:18px;
     box-shadow:0 20px 40px rgba(17,24,39,.12);
+    border-radius:18px;
+    max-height:250px;
     overflow:auto;
-    max-height:240px;
+    z-index:20;
     display:none;
-    z-index:15;
   }
   .autocomplete-item{
     padding:12px 14px;
-    border-bottom:1px solid var(--line-2);
-    cursor:pointer;
     font-size:13px;
-    line-height:1.4;
+    cursor:pointer;
+    border-bottom:1px solid var(--line-2);
   }
   .autocomplete-item:last-child{border-bottom:none}
-  .autocomplete-item:hover,.autocomplete-item.active{background:#f7f7f5}
-  .config{display:none}
+  .autocomplete-item:hover,.autocomplete-item.active{
+    background:#f7f7f5;
+  }
   @media (max-width:1024px){
     .filters-grid,.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
     .hero h1{font-size:40px}
@@ -260,12 +269,12 @@
 <body>
   <main class="wrap">
     <section class="hero-grid">
-      <article class="hero">
+      <article class="panel hero">
         <h1>Consulta de laboratorios acreditados IDEAM</h1>
       </article>
     </section>
 
-    <section class="filters">
+    <section class="panel filters">
       <h2 class="section-title">Filtros</h2>
       <p class="muted" style="margin-top:6px;">Busca por nombre del laboratorio, variable, matriz o método.</p>
 
@@ -302,7 +311,7 @@
       <div class="muted">Autocompletado: flechas arriba y abajo para navegar, Enter para seleccionar.</div>
     </section>
 
-    <section class="summary">
+    <section class="panel summary">
       <div class="metrics">
         <div class="metric">
           <div class="metric-label">Filas cargadas</div>
@@ -340,6 +349,613 @@
       <div class="footer-note">La tabla en pantalla es resumida. La exportación conserva el formato verde con filtros.</div>
     </section>
   </main>
-</body>
 
+<script>
+    const API_BASE = "https://www.datos.gov.co/resource/2waz-acaa.json";
+    const PAGE_SIZE = 50;
+
+    const FILTER_FIELDS = {
+      laboratorio: "nombre_del_laboratorio",
+      variable: "variable",
+      matriz: "matriz",
+      metodo: "m_todo"
+    };
+
+    const TABLE_COLUMNS = [
+      { key: "c_digo_de_laboratorio", label: "Código" },
+      { key: "nombre_del_laboratorio", label: "Nombre del laboratorio" },
+      { key: "variable", label: "Variable" },
+      { key: "matriz", label: "Matriz" },
+      { key: "m_todo", label: "Método" },
+      { key: "t_cnica", label: "Técnica" },
+      { key: "ciudad", label: "Ciudad" },
+      { key: "departamento", label: "Departamento" },
+      { key: "desde", label: "Desde" },
+      { key: "hasta", label: "Hasta" }
+    ];
+
+    const state = {
+      rows: [],
+      offset: 0,
+      cache: {},
+      suggest: {
+        laboratorio: { items: [], active: -1 },
+        variable: { items: [], active: -1 },
+        matriz: { items: [], active: -1 },
+        metodo: { items: [], active: -1 }
+      }
+    };
+
+    const el = {
+      statusText: document.getElementById("statusText"),
+      statusDot: document.getElementById("statusDot"),
+      labInput: document.getElementById("labInput"),
+      varInput: document.getElementById("varInput"),
+      matrizInput: document.getElementById("matrizInput"),
+      metodoInput: document.getElementById("metodoInput"),
+      labSuggest: document.getElementById("labSuggest"),
+      varSuggest: document.getElementById("varSuggest"),
+      matrizSuggest: document.getElementById("matrizSuggest"),
+      metodoSuggest: document.getElementById("metodoSuggest"),
+      btnBuscar: document.getElementById("btnBuscar"),
+      btnLimpiar: document.getElementById("btnLimpiar"),
+      btnExcel: document.getElementById("btnExcel"),
+      btnPrev: document.getElementById("btnPrev"),
+      btnNext: document.getElementById("btnNext"),
+      queryPreview: document.getElementById("queryPreview"),
+      kpiRows: document.getElementById("kpiRows"),
+      kpiOffset: document.getElementById("kpiOffset"),
+      kpiState: document.getElementById("kpiState"),
+      resultInfo: document.getElementById("resultInfo"),
+      thead: document.querySelector("#resultsTable thead"),
+      tbody: document.querySelector("#resultsTable tbody")
+    };
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function soqlEscape(text) {
+      return String(text).replace(/'/g, "''");
+    }
+
+    function setStatus(text, kind = "ok") {
+      el.statusText.textContent = text;
+      el.kpiState.textContent = kind === "error" ? "Error" : "Listo";
+      el.statusDot.className = "dot " + (kind === "error" ? "error" : "ok");
+    }
+
+    function getInput(kind) {
+      return ({ laboratorio: el.labInput, variable: el.varInput, matriz: el.matrizInput, metodo: el.metodoInput })[kind];
+    }
+
+    function getSuggestBox(kind) {
+      return ({ laboratorio: el.labSuggest, variable: el.varSuggest, matriz: el.matrizSuggest, metodo: el.metodoSuggest })[kind];
+    }
+
+    function getFilters() {
+      return {
+        laboratorio: el.labInput.value.trim(),
+        variable: el.varInput.value.trim(),
+        matriz: el.matrizInput.value.trim(),
+        metodo: el.metodoInput.value.trim()
+      };
+    }
+
+    function buildWhere() {
+      const filters = getFilters();
+      const parts = [];
+      for (const [kind, value] of Object.entries(filters)) {
+        if (!value) continue;
+        const field = FILTER_FIELDS[kind];
+        parts.push(`upper(${field}) like upper('%${soqlEscape(value)}%')`);
+      }
+      return parts.join(" AND ");
+    }
+
+    function buildTableUrl(offset = 0) {
+      const params = new URLSearchParams();
+      params.set("$limit", String(PAGE_SIZE));
+      params.set("$offset", String(offset));
+      params.set("$order", ":id DESC");
+      const where = buildWhere();
+      if (where) params.set("$where", where);
+      params.set("$select", TABLE_COLUMNS.map(c => c.key).join(","));
+      return `${API_BASE}?${params.toString()}`;
+    }
+
+    function buildExportUrl(offset = 0, limit = 50000) {
+      const params = new URLSearchParams();
+      params.set("$limit", String(limit));
+      params.set("$offset", String(offset));
+      params.set("$order", ":id DESC");
+      const where = buildWhere();
+      if (where) params.set("$where", where);
+      return `${API_BASE}?${params.toString()}`;
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return value;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
+    function normalizeForTable(row) {
+      const out = {};
+      for (const col of TABLE_COLUMNS) {
+        let value = row[col.key] ?? "";
+        if (col.key === "desde" || col.key === "hasta") value = formatDate(value);
+        out[col.label] = value;
+      }
+      return out;
+    }
+
+    const HEADER_LABELS = {
+      "c_digo_de_laboratorio": "Código de laboratorio",
+      "nombre_del_laboratorio": "Nombre del laboratorio",
+      "variable": "Variable",
+      "matriz": "Matriz",
+      "m_todo": "Método",
+      "t_cnica": "Técnica",
+      "ciudad": "Ciudad",
+      "departamento": "Departamento",
+      "desde": "Desde",
+      "hasta": "Hasta",
+      "n_it": "NIT",
+      "direcci_n": "Dirección",
+      "tel_fono": "Teléfono",
+      "fax": "Fax",
+      "resoluci_n": "Resolución",
+      "vigencia": "Vigencia",
+      "estado": "Estado",
+      "observaciones": "Observaciones",
+      "clase_de_laboratorio": "Clase de laboratorio",
+      "tipo_de_laboratorio": "Tipo de laboratorio",
+      "c_digo": "Código",
+      "serial": "Serial",
+      "equipo": "Equipo",
+      "marca": "Marca",
+      "modelo": "Modelo",
+      "analito": "Analito",
+      "par_metro": "Parámetro",
+      "metodolog_a": "Metodología",
+      "tipo_de_matriz": "Tipo de matriz",
+      "municipio": "Municipio",
+      "direcci_n_de_contacto": "Dirección de contacto",
+      "correo_electr_nico": "Correo electrónico",
+      "p_gina_web": "Página web",
+      "representante_legal": "Representante legal"
+    };
+
+    function prettifyHeader(key) {
+      if (HEADER_LABELS[key]) return HEADER_LABELS[key];
+
+      return String(key)
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, c => c.toUpperCase())
+        .replace(/\bNit\b/g, "NIT")
+        .replace(/Tecnica/g, "Técnica")
+        .replace(/Metodo/g, "Método")
+        .replace(/Direccion/g, "Dirección")
+        .replace(/Telefono/g, "Teléfono")
+        .replace(/Resolucion/g, "Resolución")
+        .replace(/Pagina/g, "Página")
+        .replace(/Electronico/g, "Electrónico")
+        .replace(/Parametro/g, "Parámetro")
+        .replace(/Metodologia/g, "Metodología");
+    }
+
+    function normalizeForExcelRow(row, orderedKeys) {
+      const out = {};
+      for (const key of orderedKeys) {
+        let value = row[key];
+        if (key === "desde" || key === "hasta") value = formatDate(value);
+        out[prettifyHeader(key)] = value ?? "";
+      }
+      return out;
+    }
+
+    async function fetchAllExportRows() {
+      const pageSize = 50000;
+      let offset = 0;
+      let allRows = [];
+
+      while (true) {
+        const url = buildExportUrl(offset, pageSize);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`La exportación respondió con estado ${res.status}.`);
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : [];
+        allRows = allRows.concat(rows);
+
+        if (rows.length < pageSize) break;
+        offset += pageSize;
+
+        if (offset > 500000) break;
+      }
+
+      return allRows;
+    }
+
+    async function fetchRows() {
+      const url = buildTableUrl(state.offset);
+      el.queryPreview.textContent = url;
+      setStatus("Consultando...");
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`La API respondió con estado ${res.status}.`);
+      const data = await res.json();
+      state.rows = Array.isArray(data) ? data : [];
+      renderTable();
+      setStatus("Consulta exitosa");
+    }
+
+    function renderTable() {
+      el.kpiRows.textContent = state.rows.length;
+      el.kpiOffset.textContent = state.offset;
+      el.resultInfo.textContent = `Resultados: ${state.rows.length} · Offset ${state.offset}`;
+      el.thead.innerHTML = `<tr>${TABLE_COLUMNS.map(c => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr>`;
+
+      if (!state.rows.length) {
+        el.tbody.innerHTML = `<tr><td colspan="${TABLE_COLUMNS.length}">No se encontraron resultados.</td></tr>`;
+        return;
+      }
+
+      el.tbody.innerHTML = state.rows.map(row => {
+        const normalized = normalizeForTable(row);
+        return `<tr>${Object.values(normalized).map(value => `<td>${escapeHtml(value)}</td>`).join("")}</tr>`;
+      }).join("");
+    }
+
+    async function exportToExcel() {
+      try {
+        setStatus("Generando Excel...");
+        const rows = await fetchAllExportRows();
+
+        if (!rows.length) {
+          alert("No hay datos para exportar con esos filtros.");
+          setStatus("Sin datos para exportar");
+          return;
+        }
+
+        const orderedKeys = Object.keys(rows[0]);
+        const normalizedRows = rows.map(row => normalizeForExcelRow(row, orderedKeys));
+        const filters = getFilters();
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = "ChatGPT";
+        workbook.created = new Date();
+
+        const ws = workbook.addWorksheet("Resultados completos", {
+          views: [{ state: "frozen", ySplit: 1 }]
+        });
+
+        const headers = orderedKeys.map(k => prettifyHeader(k));
+        ws.addRow(headers);
+
+        normalizedRows.forEach(obj => {
+          ws.addRow(headers.map(h => obj[h] ?? ""));
+        });
+
+        const headerGreen = "FF4B844E";
+        const headerDark = "FF2A5D30";
+        const bandGreen = "FFF3F8F3";
+        const borderGreen = "FFB9D6BA";
+
+        ws.getRow(1).height = 22;
+        ws.getRow(1).eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: headerGreen }
+          };
+          cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+          cell.border = {
+            top: { style: "thin", color: { argb: borderGreen } },
+            left: { style: "thin", color: { argb: borderGreen } },
+            bottom: { style: "thin", color: { argb: borderGreen } },
+            right: { style: "thin", color: { argb: borderGreen } }
+          };
+        });
+
+        for (let r = 2; r <= ws.rowCount; r++) {
+          const row = ws.getRow(r);
+          row.eachCell((cell) => {
+            cell.alignment = { vertical: "top", wrapText: true };
+            cell.border = {
+              top: { style: "thin", color: { argb: "FFE5E7EB" } },
+              left: { style: "thin", color: { argb: "FFE5E7EB" } },
+              bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+              right: { style: "thin", color: { argb: "FFE5E7EB" } }
+            };
+          });
+          if (r % 2 === 0) {
+            row.eachCell((cell) => {
+              cell.fill = {
+                type: "pattern",
+                pattern: "solid",
+                fgColor: { argb: bandGreen }
+              };
+            });
+          }
+        }
+
+        ws.autoFilter = {
+          from: { row: 1, column: 1 },
+          to: { row: 1, column: headers.length }
+        };
+
+        // Approximate column widths based on content length
+        headers.forEach((header, idx) => {
+          const values = [header, ...normalizedRows.map(r => r[header] ?? "")];
+          const maxLen = Math.min(
+            80,
+            Math.max(...values.map(v => String(v).length), 12)
+          );
+          ws.getColumn(idx + 1).width = maxLen + 2;
+        });
+
+        ws.eachRow((row, rowNumber) => {
+          const isHeader = rowNumber === 1;
+          row.eachCell((cell) => {
+            cell.alignment = {
+              vertical: isHeader ? "middle" : "top",
+              horizontal: isHeader ? "center" : "left",
+              wrapText: false
+            };
+          });
+        });
+
+        const meta = workbook.addWorksheet("Filtros");
+        meta.columns = [
+          { header: "Filtro", key: "filtro", width: 28 },
+          { header: "Valor", key: "valor", width: 40 }
+        ];
+        [
+          ["Nombre del laboratorio", filters.laboratorio || ""],
+          ["Variable", filters.variable || ""],
+          ["Matriz", filters.matriz || ""],
+          ["Método", filters.metodo || ""],
+          ["Fecha de exportación", new Date().toLocaleString("es-CO")],
+          ["Total de filas exportadas", rows.length],
+          ["Total de columnas exportadas", orderedKeys.length]
+        ].forEach(([filtro, valor]) => meta.addRow({ filtro, valor }));
+
+        meta.getRow(1).eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerDark } };
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+        });
+
+        const fields = workbook.addWorksheet("Campos");
+        fields.columns = [
+          { header: "Campo original", key: "original", width: 34 },
+          { header: "Encabezado en Excel", key: "excel", width: 34 }
+        ];
+        orderedKeys.forEach(k => fields.addRow({ original: k, excel: prettifyHeader(k) }));
+
+        fields.getRow(1).eachCell((cell) => {
+          cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerDark } };
+          cell.alignment = { vertical: "middle", horizontal: "center" };
+        });
+
+        const safeName = [
+          filters.laboratorio || "todos",
+          filters.variable || "",
+          filters.matriz || "",
+          filters.metodo || ""
+        ].join("_").replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, "_").slice(0, 80);
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob(
+          [buffer],
+          { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `consulta_ideam_completa_${safeName || "resultados"}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        setStatus("Excel completo generado");
+      } catch (error) {
+        console.error(error);
+        setStatus(error.message || "Error al exportar", "error");
+        alert(error.message || "Ocurrió un error al exportar a Excel.");
+      }
+    }
+
+    async function fetchSuggestions(kind, text) {
+      const raw = text.trim();
+      if (!raw) return [];
+      const field = FILTER_FIELDS[kind];
+      const cacheKey = `${kind}|${raw.toLowerCase()}`;
+      if (state.cache[cacheKey]) return state.cache[cacheKey];
+
+      const params = new URLSearchParams();
+      params.set("$select", `distinct ${field}`);
+      params.set("$where", `upper(${field}) like upper('%${soqlEscape(raw)}%') AND ${field} IS NOT NULL`);
+      params.set("$order", `${field} ASC`);
+      params.set("$limit", "8");
+
+      const res = await fetch(`${API_BASE}?${params.toString()}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      const values = data.map(item => item[field]).filter(Boolean).slice(0, 8);
+      state.cache[cacheKey] = values;
+      return values;
+    }
+
+    function renderSuggestions(kind, items) {
+      const box = getSuggestBox(kind);
+      state.suggest[kind].items = items;
+      state.suggest[kind].active = -1;
+
+      if (!items.length) {
+        box.style.display = "none";
+        box.innerHTML = "";
+        return;
+      }
+
+      box.innerHTML = items.map((item, idx) => `<div class="suggestion" data-index="${idx}">${escapeHtml(item)}</div>`).join("");
+      box.style.display = "block";
+
+      [...box.querySelectorAll(".suggestion")].forEach(node => {
+        node.addEventListener("mousedown", e => {
+          e.preventDefault();
+          applySuggestion(kind, Number(node.dataset.index));
+        });
+      });
+    }
+
+    function updateSuggestionActive(kind) {
+      const box = getSuggestBox(kind);
+      const nodes = [...box.querySelectorAll(".suggestion")];
+      nodes.forEach((node, idx) => node.classList.toggle("active", idx === state.suggest[kind].active));
+      const active = nodes[state.suggest[kind].active];
+      if (active) active.scrollIntoView({ block: "nearest" });
+    }
+
+    function applySuggestion(kind, idx) {
+      const value = state.suggest[kind].items[idx];
+      if (value !== undefined) getInput(kind).value = value;
+      const box = getSuggestBox(kind);
+      box.style.display = "none";
+      box.innerHTML = "";
+      state.suggest[kind].active = -1;
+    }
+
+    function hideSuggestions() {
+      ["laboratorio", "variable", "matriz", "metodo"].forEach(kind => {
+        const box = getSuggestBox(kind);
+        box.style.display = "none";
+        box.innerHTML = "";
+        state.suggest[kind].items = [];
+        state.suggest[kind].active = -1;
+      });
+    }
+
+    function setupAutocomplete(kind) {
+      const input = getInput(kind);
+      const box = getSuggestBox(kind);
+      let timer = null;
+
+      input.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const value = input.value.trim();
+          if (!value) return renderSuggestions(kind, []);
+          renderSuggestions(kind, await fetchSuggestions(kind, value));
+        }, 180);
+      });
+
+      input.addEventListener("focus", async () => {
+        const value = input.value.trim();
+        if (!value) return;
+        renderSuggestions(kind, await fetchSuggestions(kind, value));
+      });
+
+      input.addEventListener("keydown", async e => {
+        const visible = box.style.display === "block";
+        const data = state.suggest[kind];
+
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          if (!visible) {
+            const value = input.value.trim();
+            if (value) renderSuggestions(kind, await fetchSuggestions(kind, value));
+            return;
+          }
+          if (!data.items.length) return;
+          data.active = (data.active + 1) % data.items.length;
+          updateSuggestionActive(kind);
+          return;
+        }
+
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          if (!visible || !data.items.length) return;
+          data.active = data.active <= 0 ? data.items.length - 1 : data.active - 1;
+          updateSuggestionActive(kind);
+          return;
+        }
+
+        if (e.key === "Enter") {
+          if (visible && data.active >= 0) {
+            e.preventDefault();
+            applySuggestion(kind, data.active);
+            return;
+          }
+          state.offset = 0;
+          fetchRows().catch(showError);
+          return;
+        }
+
+        if (e.key === "Escape") {
+          box.style.display = "none";
+        }
+      });
+    }
+
+    function clearFilters() {
+      el.labInput.value = "";
+      el.varInput.value = "";
+      el.matrizInput.value = "";
+      el.metodoInput.value = "";
+      hideSuggestions();
+      state.offset = 0;
+      fetchRows().catch(showError);
+    }
+
+    function showError(error) {
+      console.error(error);
+      setStatus(error.message || "Ocurrió un error.", "error");
+      el.thead.innerHTML = `<tr>${TABLE_COLUMNS.map(c => `<th>${escapeHtml(c.label)}</th>`).join("")}</tr>`;
+      el.tbody.innerHTML = `<tr><td colspan="${TABLE_COLUMNS.length}">${escapeHtml(error.message || "Ocurrió un error.")}</td></tr>`;
+    }
+
+    el.btnBuscar.addEventListener("click", () => {
+      state.offset = 0;
+      fetchRows().catch(showError);
+    });
+
+    el.btnLimpiar.addEventListener("click", clearFilters);
+    el.btnExcel.addEventListener("click", exportToExcel);
+
+    el.btnPrev.addEventListener("click", () => {
+      state.offset = Math.max(0, state.offset - PAGE_SIZE);
+      fetchRows().catch(showError);
+    });
+
+    el.btnNext.addEventListener("click", () => {
+      state.offset += PAGE_SIZE;
+      fetchRows().catch(showError);
+    });
+
+    document.addEventListener("click", e => {
+      if (!e.target.closest(".field")) hideSuggestions();
+    });
+
+    setupAutocomplete("laboratorio");
+    setupAutocomplete("variable");
+    setupAutocomplete("matriz");
+    setupAutocomplete("metodo");
+
+    fetchRows().catch(showError);
+  </script>
+</body>
 </html>
