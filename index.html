@@ -262,9 +262,45 @@
     .metric-value{font-size:26px}
     .section-title,.result-title{font-size:20px}
   }
+
+  .section-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:12px;
+    margin-bottom:18px;
+    flex-wrap:wrap;
+  }
+  .section-sub,.toolbar-sub{
+    margin:6px 0 0;
+    color:var(--muted);
+    font-size:14px;
+    line-height:1.7;
+  }
+  .status{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    background:var(--accent-soft);
+    border-radius:999px;
+    font-size:13px;
+    color:var(--muted);
+  }
+  .dot{
+    width:10px;
+    height:10px;
+    border-radius:50%;
+    background:#9ca3af;
+    flex:0 0 auto;
+  }
+  .dot.ok{background:var(--ok)}
+  .dot.error{background:var(--error)}
 </style>
 
 </head>
+
 
 <body>
   <main class="wrap">
@@ -275,10 +311,18 @@
     </section>
 
     <section class="panel filters">
-      <h2 class="section-title">Filtros</h2>
-      <p class="muted" style="margin-top:6px;">Busca por nombre del laboratorio, variable, matriz o método.</p>
+      <div class="section-head">
+        <div>
+          <h2 class="section-title">Filtros</h2>
+          <p class="section-sub">Busca por nombre del laboratorio, variable, matriz o método.</p>
+        </div>
+        <div class="status">
+          <span class="dot ok" id="statusDot"></span>
+          <span id="statusText">Listo para consultar</span>
+        </div>
+      </div>
 
-      <div class="filters-grid" style="margin-top:18px;">
+      <div class="filters-grid">
         <div class="field-wrap">
           <label for="labInput">Nombre del laboratorio</label>
           <input id="labInput" type="text" placeholder="Escribe el nombre del laboratorio" autocomplete="off" />
@@ -304,7 +348,7 @@
       <div class="actions">
         <button id="btnBuscar" class="btn-main">Consultar</button>
         <button id="btnLimpiar" class="btn-secondary">Limpiar filtros</button>
-        <button id="btnCSV" class="btn-secondary">Descargar Excel</button>
+        <button id="btnExcel" class="btn-secondary">Descargar Excel</button>
       </div>
 
       <div class="query-box" id="queryPreview">Preparando consulta…</div>
@@ -322,17 +366,20 @@
           <div class="metric-value" id="kpiOffset">0</div>
         </div>
         <div class="metric">
-          <div class="metric-label">Columnas visibles</div>
-          <div class="metric-value" id="kpiCols">0</div>
+          <div class="metric-label">Estado</div>
+          <div class="metric-value" id="kpiState" style="font-size:22px;">Listo</div>
         </div>
         <div class="metric">
-          <div class="metric-label">Estado</div>
-          <div class="metric-value" id="kpiStatus" style="font-size:22px;">Listo</div>
+          <div class="metric-label">Exportación</div>
+          <div class="metric-value" style="font-size:22px;">Completa</div>
         </div>
       </div>
 
       <div class="toolbar">
-        <div class="result-title" id="resultInfo">Resultados: 0</div>
+        <div>
+          <div class="result-title" id="resultInfo">Resultados: 0</div>
+          <div class="toolbar-sub">Vista resumida del alcance acreditado.</div>
+        </div>
         <div class="pager">
           <button id="btnPrev" class="btn-secondary">Anterior</button>
           <button id="btnNext" class="btn-secondary">Siguiente</button>
@@ -349,7 +396,6 @@
       <div class="footer-note">La tabla en pantalla es resumida. La exportación conserva el formato verde con filtros.</div>
     </section>
   </main>
-
 <script>
     const API_BASE = "https://www.datos.gov.co/resource/2waz-acaa.json";
     const PAGE_SIZE = 50;
