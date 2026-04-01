@@ -233,27 +233,36 @@
     right:0;
     background:#fff;
     border:1px solid var(--line);
-    box-shadow:0 20px 40px rgba(17,24,39,.12);
-    border-radius:18px;
-    max-height:180px;
+    box-shadow:0 12px 24px rgba(17,24,39,.10);
+    border-radius:14px;
+    max-height:140px;
     overflow:auto;
     z-index:20;
     display:none;
   }
   .autocomplete-item{
-    padding:8px 12px;
-    font-size:11px;
-    line-height:1.25;
+    padding:6px 10px;
+    font-size:10px;
+    line-height:1.15;
     cursor:pointer;
     border-bottom:1px solid var(--line-2);
-    white-space:normal;
-    word-break:break-word;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
   }
   .autocomplete-item:last-child{border-bottom:none}
   .autocomplete-item:hover,.autocomplete-item.active{
     background:#f7f7f5;
   }
-  @media (max-width:1024px){
+  
+  .autocomplete-box::-webkit-scrollbar{
+    width:8px;
+  }
+  .autocomplete-box::-webkit-scrollbar-thumb{
+    background:#cfcfca;
+    border-radius:999px;
+  }
+@media (max-width:1024px){
     .filters-grid,.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
     .hero h1{font-size:40px}
   }
